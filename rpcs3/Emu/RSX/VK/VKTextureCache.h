@@ -250,7 +250,7 @@ namespace vk
 			flushed = true;
 
 			void* pixels_src = dma_buffer->map(0, cpu_address_range);
-			void* pixels_dst = vm::base(cpu_address_base);
+			void* pixels_dst = vm::get_super_ptr<u8>(cpu_address_base, cpu_address_range).get();
 
 			const auto texel_layout = vk::get_format_element_size(vram_texture->info.format);
 			const auto elem_size = texel_layout.first;
@@ -895,6 +895,10 @@ namespace vk
 			}
 			else
 			{
+				//Attempt to avoid false hits due to over-estimation
+				//TODO: Improve stitching prediction
+				region.reset_protection_policy(rsx::protection_policy::protect_policy_one_page);
+
 				//TODO: Confirm byte swap patterns
 				region.protect(utils::protection::no);
 				region.set_unpack_swap_bytes((aspect_flags & VK_IMAGE_ASPECT_COLOR_BIT) == VK_IMAGE_ASPECT_COLOR_BIT);

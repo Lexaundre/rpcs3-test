@@ -479,7 +479,7 @@ namespace gl
 
 			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id);
 			void *data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, pbo_size, GL_MAP_READ_BIT);
-			u8 *dst = vm::_ptr<u8>(cpu_address_base);
+			u8 *dst = vm::get_super_ptr<u8>(cpu_address_base, cpu_address_range).get();
 
 			//throw if map failed since we'll segfault anyway
 			verify(HERE), data != nullptr;
@@ -991,6 +991,10 @@ namespace gl
 				default:
 					fmt::throw_exception("Unexpected gcm format 0x%X" HERE, gcm_format);
 				}
+
+				//Attempt to avoid false hits due to over-estimation
+				//TODO: Improve stitching prediction
+				cached.reset_protection_policy(rsx::protection_policy::protect_policy_one_page);
 
 				cached.make_flushable();
 				cached.set_dimensions(width, height, depth, (rsx_size / height));
