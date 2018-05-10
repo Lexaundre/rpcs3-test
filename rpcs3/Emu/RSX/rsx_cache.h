@@ -7,6 +7,8 @@
 #include "Emu/Cell/Modules/cellMsgDialog.h"
 #include "Emu/System.h"
 
+#include "rsx_utils.h"
+
 namespace rsx
 {
 	enum protection_policy
@@ -21,6 +23,7 @@ namespace rsx
 	private:
 		u32 locked_address_base = 0;
 		u32 locked_address_range = 0;
+		weak_ptr locked_memory_ptr;
 
 	protected:
 		u32 cpu_address_base = 0;
@@ -87,12 +90,20 @@ namespace rsx
 			utils::memory_protect(vm::base(locked_address_base), locked_address_range, prot);
 			protection = prot;
 			locked = prot != utils::protection::rw;
+
+			if (locked && prot == utils::protection::no)
+			{
+				locked_memory_ptr = rsx::get_super_ptr(cpu_address_base, cpu_address_range);
+			}
+			else
+			{
+				locked_memory_ptr = {};
+			}
 		}
 
 		void unprotect()
 		{
 			protect(utils::protection::rw);
-			locked = false;
 		}
 
 		void discard()
@@ -202,6 +213,12 @@ namespace rsx
 		utils::protection get_protection() const
 		{
 			return protection;
+		}
+
+		void* get_raw_ptr() const
+		{
+			verify(HERE), locked_memory_ptr._ptr != nullptr;
+			return locked_memory_ptr.get();
 		}
 	};
 

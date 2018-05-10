@@ -4,6 +4,7 @@
 #include "Utilities/geometry.h"
 #include "gcm_enums.h"
 #include <atomic>
+#include <memory>
 
 // TODO: replace the code below by #include <optional> when C++17 or newer will be used
 #include <optional.hpp>
@@ -26,6 +27,37 @@ namespace rsx
 		u8 deref_count = 0;
 
 		void reset_refs() { deref_count = 0; }
+	};
+
+	//Weak pointer without lock semantics
+	//Backed by a real shared_ptr for non-rsx memory
+	//Backed by a global shared pool for rsx memory
+	struct weak_ptr
+	{
+		void* _ptr;
+		std::shared_ptr<u8> _extern;
+
+		weak_ptr(void* raw, bool is_rsx_mem = true)
+		{
+			_ptr = raw;
+			if (!is_rsx_mem) _extern.reset((u8*)raw);
+		}
+
+		weak_ptr(std::shared_ptr<u8>& block)
+		{
+			_extern = block;
+			_ptr = _extern.get();
+		}
+
+		weak_ptr()
+		{
+			_ptr = nullptr;
+		}
+
+		void* get() const
+		{
+			return _ptr;
+		}
 	};
 
 	//Holds information about a framebuffer
@@ -288,6 +320,9 @@ namespace rsx
 	void fill_viewport_matrix(void *buffer, bool transpose);
 
 	std::array<float, 4> get_constant_blend_colors();
+
+	// Acquire memory mirror with r/w permissions
+	weak_ptr get_super_ptr(u32 addr, u32 size);
 
 	/**
 	 * Shuffle texel layout from xyzw to wzyx

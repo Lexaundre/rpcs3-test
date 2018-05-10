@@ -250,7 +250,7 @@ namespace vk
 			flushed = true;
 
 			void* pixels_src = dma_buffer->map(0, cpu_address_range);
-			void* pixels_dst = vm::get_super_ptr<u8>(cpu_address_base, cpu_address_range).get();
+			void* pixels_dst = get_raw_ptr();
 
 			const auto texel_layout = vk::get_format_element_size(vram_texture->info.format);
 			const auto elem_size = texel_layout.first;
