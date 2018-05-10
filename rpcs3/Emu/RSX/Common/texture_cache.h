@@ -154,6 +154,12 @@ namespace rsx
 			readback_behaviour = flags;
 		}
 
+		void reset_protection_policy(protection_policy policy)
+		{
+			verify(HERE), locked = false;
+			buffered_section::reset(cpu_address_base, cpu_address_range, policy);
+		}
+
 		u16 get_width() const
 		{
 			return width;
@@ -271,8 +277,7 @@ namespace rsx
 		{
 			bool violation_handled = false;
 			std::vector<section_storage_type*> sections_to_flush; //Sections to be flushed
-			std::vector<section_storage_type*> sections_to_reprotect; //Sections to be protected after flushing
-			std::vector<section_storage_type*> sections_to_unprotect; //These sections are to be unprotected and discarded by caller
+			std::vector<section_storage_type*> sections_to_unprotect; //These sections are to be unpotected and discarded by caller
 			int num_flushable = 0;
 			u64 cache_tag = 0;
 			u32 address_base = 0;
@@ -598,58 +603,71 @@ namespace rsx
 					}
 				}
 
-				std::vector<utils::protection> reprotections;
 				for (auto &obj : trampled_set)
 				{
-					bool to_reprotect = false;
+					bool collateral = false;
 
 					if (!deferred_flush && !discard_only)
 					{
 						if (!is_writing && obj.first->get_protection() != utils::protection::no)
 						{
-							to_reprotect = true;
+							collateral = true;
 						}
 						else
 						{
 							if (rebuild_cache && allow_flush && obj.first->is_flushable())
 							{
 								const std::pair<u32, u32> null_check = std::make_pair(UINT32_MAX, 0);
-								to_reprotect = !std::get<0>(obj.first->overlaps_page(null_check, address, true));
+								collateral = !std::get<0>(obj.first->overlaps_page(null_check, address, true));
 							}
 						}
 					}
 
-					if (to_reprotect)
+					if (collateral)
 					{
-						result.sections_to_reprotect.push_back(obj.first);
-						reprotections.push_back(obj.first->get_protection());
+						//False positive
+						continue;
 					}
 					else if (obj.first->is_flushable())
 					{
-						result.sections_to_flush.push_back(obj.first);
+						if (!allow_flush)
+						{
+							result.sections_to_flush.push_back(obj.first);
+						}
+						else
+						{
+							if (!obj.first->flush(std::forward<Args>(extras)...))
+							{
+								//Missed address, note this
+								//TODO: Lower severity when successful to keep the cache from overworking
+								record_cache_miss(*obj.first);
+							}
+
+							m_num_flush_requests++;
+						}
+
+						continue;
 					}
-					else if (!deferred_flush)
+					else if (deferred_flush)
 					{
-						obj.first->set_dirty(true);
-						m_unreleased_texture_objects++;
+						//allow_flush = false and not synchronized
+						result.sections_to_unprotect.push_back(obj.first);
+						continue;
 					}
 					else
 					{
-						result.sections_to_unprotect.push_back(obj.first);
+						//allow_flush = true (rsx is the caller) and not synchronized
+						obj.first->set_dirty(true);
+						m_unreleased_texture_objects++;
 					}
 
-					if (deferred_flush)
-						continue;
-
+					//Only unsynchronized (no-flush) sections should reach here, and only if the rendering thread is the caller
 					if (discard_only)
 						obj.first->discard();
 					else
 						obj.first->unprotect();
 
-					if (!to_reprotect)
-					{
-						obj.second->remove_one();
-					}
+					obj.second->remove_one();
 				}
 
 				if (deferred_flush)
@@ -659,32 +677,6 @@ namespace rsx
 					result.address_range = range;
 					result.cache_tag = m_cache_update_tag.load(std::memory_order_consume);
 					return result;
-				}
-
-				if (result.sections_to_flush.size() > 0)
-				{
-					verify(HERE), allow_flush;
-
-					// Flush here before 'reprotecting' since flushing will write the whole span
-					for (const auto &tex : result.sections_to_flush)
-					{
-						if (!tex->flush(std::forward<Args>(extras)...))
-						{
-							//Missed address, note this
-							//TODO: Lower severity when successful to keep the cache from overworking
-							record_cache_miss(*tex);
-						}
-
-						m_num_flush_requests++;
-					}
-				}
-
-				int n = 0;
-				for (auto &tex: result.sections_to_reprotect)
-				{
-					tex->discard();
-					tex->protect(reprotections[n++]);
-					tex->set_dirty(false);
 				}
 
 				//Everything has been handled
@@ -1138,20 +1130,21 @@ namespace rsx
 
 			if (m_cache_update_tag.load(std::memory_order_consume) == data.cache_tag)
 			{
-				std::vector<utils::protection> old_protections;
-				for (auto &tex : data.sections_to_reprotect)
+				//1. Write memory to cpu side
+				for (auto &tex : data.sections_to_flush)
 				{
 					if (tex->is_locked())
 					{
-						old_protections.push_back(tex->get_protection());
-						tex->unprotect();
-					}
-					else
-					{
-						old_protections.push_back(utils::protection::rw);
+						if (!tex->flush(std::forward<Args>(extras)...))
+						{
+							record_cache_miss(*tex);
+						}
+
+						m_num_flush_requests++;
 					}
 				}
 
+				//2. Release all obsolete sections
 				for (auto &tex : data.sections_to_unprotect)
 				{
 					if (tex->is_locked())
@@ -1162,46 +1155,11 @@ namespace rsx
 					}
 				}
 
-				//TODO: This bit can cause race conditions if other threads are accessing this memory
-				//1. Force readback if surface is not synchronized yet to make unlocked part finish quickly
-				for (auto &tex : data.sections_to_flush)
-				{
-					if (tex->is_locked())
-					{
-						if (!tex->is_synchronized())
-						{
-							record_cache_miss(*tex);
-							tex->copy_texture(true, std::forward<Args>(extras)...);
-						}
-
-						m_cache[get_block_address(tex->get_section_base())].remove_one();
-					}
-				}
-
-				//TODO: Acquire global io lock here
-
-				//2. Unprotect all the memory
+				//3. Release all flushed sections
 				for (auto &tex : data.sections_to_flush)
 				{
 					tex->unprotect();
-				}
-
-				//3. Write all the memory
-				for (auto &tex : data.sections_to_flush)
-				{
-					tex->flush(std::forward<Args>(extras)...);
-					m_num_flush_requests++;
-				}
-
-				//Restore protection on the sections to reprotect
-				int n = 0;
-				for (auto &tex : data.sections_to_reprotect)
-				{
-					if (old_protections[n] != utils::protection::rw)
-					{
-						tex->discard();
-						tex->protect(old_protections[n++]);
-					}
+					m_cache[get_block_address(tex->get_section_base())].remove_one();
 				}
 			}
 			else
