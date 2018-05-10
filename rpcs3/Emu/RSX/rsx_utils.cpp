@@ -13,6 +13,9 @@ extern "C"
 
 namespace rsx
 {
+	// Large 249M block holding super memory for RSX range (0xC0000000 + 249M)
+	std::shared_ptr<u8> g_high_memory_ptr;
+
 	void convert_scale_image(u8 *dst, AVPixelFormat dst_format, int dst_width, int dst_height, int dst_pitch,
 		const u8 *src, AVPixelFormat src_format, int src_width, int src_height, int src_pitch, int src_slice_h, bool bilinear)
 	{
@@ -72,6 +75,24 @@ namespace rsx
 			u8 blend_color_a = rsx::method_registers.blend_color_8b_a();
 
 			return { blend_color_r / 255.f, blend_color_g / 255.f, blend_color_b / 255.f, blend_color_a / 255.f };
+		}
+	}
+
+	weak_ptr get_super_ptr(u32 addr, u32 len)
+	{
+		if (addr >= 0xC0000000 && (addr + len) <= (0xC0000000 + 0x0F900000))
+		{
+			//RSX local (249 MB)
+			if (!g_high_memory_ptr)
+				g_high_memory_ptr = vm::get_super_ptr<u8>(0xC0000000, 0x0F900000);
+
+			verify(HERE), g_high_memory_ptr;
+			return { g_high_memory_ptr.get() + (addr - 0xC0000000) };
+		}
+		else
+		{
+			//Main memory
+			return vm::get_super_ptr<u8>(addr, len);
 		}
 	}
 

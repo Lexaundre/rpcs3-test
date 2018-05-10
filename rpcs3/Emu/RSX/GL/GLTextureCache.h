@@ -479,7 +479,7 @@ namespace gl
 
 			glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_id);
 			void *data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, pbo_size, GL_MAP_READ_BIT);
-			u8 *dst = vm::get_super_ptr<u8>(cpu_address_base, cpu_address_range).get();
+			void *dst = get_raw_ptr();
 
 			//throw if map failed since we'll segfault anyway
 			verify(HERE), data != nullptr;

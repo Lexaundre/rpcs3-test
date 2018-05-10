@@ -156,8 +156,21 @@ namespace rsx
 
 		void reset_protection_policy(protection_policy policy)
 		{
-			verify(HERE), locked = false;
+			if (guard_policy == policy)
+				return;
+
+			const auto prot = get_protection();
+			if (locked)
+			{
+				unprotect();
+			}
+
 			buffered_section::reset(cpu_address_base, cpu_address_range, policy);
+
+			if (prot != utils::protection::rw)
+			{
+				protect(prot);
+			}
 		}
 
 		u16 get_width() const
