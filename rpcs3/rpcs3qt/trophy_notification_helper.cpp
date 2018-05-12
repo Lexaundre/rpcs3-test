@@ -7,7 +7,7 @@
 
 s32 trophy_notification_helper::ShowTrophyNotification(const SceNpTrophyDetails& trophy, const std::vector<uchar>& trophy_icon_buffer)
 {
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto dlg = rsxthr->shell_open_trophy_notification())
 		{

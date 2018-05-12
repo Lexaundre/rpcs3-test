@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "rsx_utils.h"
 #include "rsx_methods.h"
+#include "RSXThread.h"
 #include "Emu/RSX/GCM.h"
 #include "Common/BufferUtils.h"
 #include "overlays.h"
@@ -13,9 +14,6 @@ extern "C"
 
 namespace rsx
 {
-	// Large 249M block holding super memory for RSX range (0xC0000000 + 249M)
-	std::shared_ptr<u8> g_high_memory_ptr;
-
 	void convert_scale_image(u8 *dst, AVPixelFormat dst_format, int dst_width, int dst_height, int dst_pitch,
 		const u8 *src, AVPixelFormat src_format, int src_width, int src_height, int src_pitch, int src_slice_h, bool bilinear)
 	{
@@ -80,20 +78,38 @@ namespace rsx
 
 	weak_ptr get_super_ptr(u32 addr, u32 len)
 	{
-		if (addr >= 0xC0000000 && (addr + len) <= (0xC0000000 + 0x0F900000))
-		{
-			//RSX local (249 MB)
-			if (!g_high_memory_ptr)
-				g_high_memory_ptr = vm::get_super_ptr<u8>(0xC0000000, 0x0F900000);
+		verify(HERE), g_current_renderer;
 
-			verify(HERE), g_high_memory_ptr;
-			return { g_high_memory_ptr.get() + (addr - 0xC0000000) };
-		}
-		else
+		if (!g_current_renderer->super_memory_map.first)
 		{
-			//Main memory
-			return vm::get_super_ptr<u8>(addr, len);
+			auto block = vm::get(vm::any, 0xC0000000);
+			if (block)
+			{
+				g_current_renderer->super_memory_map.first = block->used();
+				g_current_renderer->super_memory_map.second = vm::get_super_ptr<u8>(0xC0000000, g_current_renderer->super_memory_map.first - 1);
+
+				if (!g_current_renderer->super_memory_map.second)
+				{
+					//Disjoint allocation?
+					LOG_ERROR(RSX, "Could not initialize contiguous RSX super-memory");
+				}
+			}
+			else
+			{
+				fmt::throw_exception("RSX memory not mapped!");
+			}
 		}
+
+		if (g_current_renderer->super_memory_map.second)
+		{
+			if (addr >= 0xC0000000 && (addr + len) <= (0xC0000000 + g_current_renderer->super_memory_map.first))
+			{
+				//RSX local
+				return { g_current_renderer->super_memory_map.second.get() + (addr - 0xC0000000) };
+			}
+		}
+
+		return vm::get_super_ptr<u8>(addr, len);
 	}
 
 	/* Fast image scaling routines

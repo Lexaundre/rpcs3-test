@@ -21,6 +21,9 @@ extern "C"
 
 namespace rsx
 {
+	class thread;
+	extern thread* g_current_renderer;
+
 	//Base for resources with reference counting
 	struct ref_counted
 	{
@@ -532,5 +535,10 @@ namespace rsx
 		result.r = ((colorref >> 16) & 0xFF) / 255.f;
 		result.a = ((colorref >> 24) & 0xFF) / 255.f;
 		return result;
+	}
+
+	static inline thread* get_current_renderer()
+	{
+		return g_current_renderer;
 	}
 }
