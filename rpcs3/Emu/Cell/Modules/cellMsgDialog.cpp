@@ -75,7 +75,7 @@ s32 cellMsgDialogOpen2(u32 type, vm::cptr<char> msgString, vm::ptr<CellMsgDialog
 		cellSysutil.error(msgString.get_ptr());
 	}
 
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto dlg = rsxthr->shell_open_message_dialog())
 		{
@@ -237,7 +237,7 @@ s32 cellMsgDialogClose(f32 delay)
 	extern u64 get_system_time();
 	const u64 wait_until = get_system_time() + static_cast<s64>(std::max<float>(delay, 0.0f) * 1000);
 
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto dlg = rsxthr->shell_get_current_dialog())
 		{
@@ -287,7 +287,7 @@ s32 cellMsgDialogAbort()
 {
 	cellSysutil.warning("cellMsgDialogAbort()");
 
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (rsxthr->shell_close_dialog())
 		{
@@ -320,7 +320,7 @@ s32 cellMsgDialogProgressBarSetMsg(u32 progressBarIndex, vm::cptr<char> msgStrin
 		return CELL_MSGDIALOG_ERROR_PARAM;
 	}
 
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto dlg2 = rsxthr->shell_get_current_dialog())
 		{
@@ -353,7 +353,7 @@ s32 cellMsgDialogProgressBarReset(u32 progressBarIndex)
 {
 	cellSysutil.warning("cellMsgDialogProgressBarReset(progressBarIndex=%d)", progressBarIndex);
 
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto dlg2 = rsxthr->shell_get_current_dialog())
 		{
@@ -386,7 +386,7 @@ s32 cellMsgDialogProgressBarInc(u32 progressBarIndex, u32 delta)
 {
 	cellSysutil.warning("cellMsgDialogProgressBarInc(progressBarIndex=%d, delta=%d)", progressBarIndex, delta);
 
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto dlg2 = rsxthr->shell_get_current_dialog())
 		{

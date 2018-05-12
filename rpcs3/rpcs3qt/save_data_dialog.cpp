@@ -7,7 +7,7 @@
 s32 save_data_dialog::ShowSaveDataList(std::vector<SaveDataEntry>& save_entries, s32 focused, u32 op, vm::ptr<CellSaveDataListSet> listSet)
 {
 	//TODO: Install native shell as an Emu callback
-	if (auto rsxthr = fxm::get<GSRender>())
+	if (auto rsxthr = rsx::get_current_renderer())
 	{
 		if (auto native_dlg = rsxthr->shell_open_save_dialog())
 		{

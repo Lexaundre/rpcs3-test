@@ -13,7 +13,7 @@ namespace rsx
 		{
 			//Force unload
 			exit = true;
-			if (auto rsxthr = fxm::get<GSRender>())
+			if (auto rsxthr = rsx::get_current_renderer())
 				rsxthr->shell_close_dialog();
 
 			if (on_close)
@@ -22,7 +22,7 @@ namespace rsx
 
 		void user_interface::refresh()
 		{
-			if (auto rsxthr = fxm::get<GSRender>())
+			if (auto rsxthr = rsx::get_current_renderer())
 			{
 				rsxthr->native_ui_flip_request.store(true);
 			}
