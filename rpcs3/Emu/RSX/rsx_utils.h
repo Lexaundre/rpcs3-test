@@ -61,6 +61,11 @@ namespace rsx
 		{
 			return _ptr;
 		}
+
+		operator bool() const
+		{
+			return (_ptr != nullptr);
+		}
 	};
 
 	//Holds information about a framebuffer
