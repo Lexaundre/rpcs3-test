@@ -642,8 +642,13 @@ namespace rsx
 							//False positive
 							continue;
 						}
-						else if (obj.first->is_flushable())
+						else if (obj.first->is_flushable() &&
+								 obj.first->test_cpu_range_start() &&
+								 obj.first->test_cpu_range_end())
 						{
+							//Write if and only if no one else has trashed section memory already
+							//TODO: Proper section management should prevent this from happening
+							//TODO: Blit engine section merge support and/or partial texture memory buffering
 							if (!allow_flush)
 							{
 								result.sections_to_flush.push_back(obj.first);
@@ -686,7 +691,7 @@ namespace rsx
 					obj.second->remove_one();
 				}
 
-				if (deferred_flush)
+				if (deferred_flush && result.sections_to_flush.size())
 				{
 					result.num_flushable = static_cast<int>(result.sections_to_flush.size());
 					result.address_base = address;

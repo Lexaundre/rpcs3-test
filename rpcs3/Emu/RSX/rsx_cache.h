@@ -13,9 +13,9 @@ namespace rsx
 {
 	enum protection_policy
 	{
-		protect_policy_one_page,	//Only guard one page, preferably one where this section 'wholly' fits
+		protect_policy_one_page,     //Only guard one page, preferrably one where this section 'wholly' fits
 		protect_policy_conservative, //Guards as much memory as possible that is guaranteed to only be covered by the defined range without sharing
-		protect_policy_full_range	//Guard the full memory range. Shared pages may be invalidated by access outside the object we're guarding
+		protect_policy_full_range    //Guard the full memory range. Shared pages may be invalidated by access outside the object we're guarding
 	};
 
 	class buffered_section
@@ -24,6 +24,17 @@ namespace rsx
 		u32 locked_address_base = 0;
 		u32 locked_address_range = 0;
 		weak_ptr locked_memory_ptr;
+		std::pair<u32, u32> memory_tags;
+
+		inline void sample_cpu_range()
+		{
+			verify(HERE), locked_memory_ptr;
+			const u32* first = (u32*)locked_memory_ptr.get();
+			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
+
+			memory_tags.first = *first;
+			memory_tags.second = *last;
+		}
 
 	protected:
 		u32 cpu_address_base = 0;
@@ -94,6 +105,7 @@ namespace rsx
 			if (locked && prot == utils::protection::no)
 			{
 				locked_memory_ptr = rsx::get_super_ptr(cpu_address_base, cpu_address_range);
+				sample_cpu_range();
 			}
 			else
 			{
@@ -219,6 +231,22 @@ namespace rsx
 		{
 			verify(HERE), locked_memory_ptr._ptr != nullptr;
 			return locked_memory_ptr.get();
+		}
+
+		bool test_cpu_range_start() const
+		{
+			verify(HERE), locked_memory_ptr;
+			const u32* first = (u32*)locked_memory_ptr.get();
+
+			return (*first == memory_tags.first);
+		}
+
+		bool test_cpu_range_end() const
+		{
+			verify(HERE), locked_memory_ptr;
+			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
+
+			return (*last == memory_tags.second);
 		}
 	};
 
