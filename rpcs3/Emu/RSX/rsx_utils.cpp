@@ -109,7 +109,8 @@ namespace rsx
 			}
 		}
 
-		return vm::get_super_ptr<u8>(addr, len);
+		auto result = vm::get_super_ptr<u8>(addr, len);
+		return { result };
 	}
 
 	/* Fast image scaling routines
