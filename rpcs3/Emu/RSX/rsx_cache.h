@@ -238,7 +238,7 @@ namespace rsx
 			verify(HERE), locked_memory_ptr;
 			const u32* first = (u32*)locked_memory_ptr.get();
 
-			return (*first == memory_tags.first);
+			return (*first == memory_tags.first || *first == cpu_address_base);
 		}
 
 		bool test_cpu_range_end() const
