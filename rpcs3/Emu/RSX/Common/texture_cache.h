@@ -618,58 +618,61 @@ namespace rsx
 
 				for (auto &obj : trampled_set)
 				{
-					bool collateral = false;
-
-					if (!deferred_flush && !discard_only)
+					if (!discard_only)
 					{
-						if (!is_writing && obj.first->get_protection() != utils::protection::no)
+						bool collateral = false;
+						if (!deferred_flush)
 						{
-							collateral = true;
-						}
-						else
-						{
-							if (rebuild_cache && allow_flush && obj.first->is_flushable())
+							if (!is_writing && obj.first->get_protection() != utils::protection::no)
 							{
-								const std::pair<u32, u32> null_check = std::make_pair(UINT32_MAX, 0);
-								collateral = !std::get<0>(obj.first->overlaps_page(null_check, address, true));
+								collateral = true;
+							}
+							else
+							{
+								if (rebuild_cache && allow_flush && obj.first->is_flushable())
+								{
+									const std::pair<u32, u32> null_check = std::make_pair(UINT32_MAX, 0);
+									collateral = !std::get<0>(obj.first->overlaps_page(null_check, address, true));
+								}
 							}
 						}
-					}
 
-					if (collateral)
-					{
-						//False positive
-						continue;
-					}
-					else if (obj.first->is_flushable())
-					{
-						if (!allow_flush)
+						if (collateral)
 						{
-							result.sections_to_flush.push_back(obj.first);
+							//False positive
+							continue;
 						}
-						else
+						else if (obj.first->is_flushable())
 						{
-							if (!obj.first->flush(std::forward<Args>(extras)...))
+							if (!allow_flush)
 							{
-								//Missed address, note this
-								//TODO: Lower severity when successful to keep the cache from overworking
-								record_cache_miss(*obj.first);
+								result.sections_to_flush.push_back(obj.first);
+							}
+							else
+							{
+								if (!obj.first->flush(std::forward<Args>(extras)...))
+								{
+									//Missed address, note this
+									//TODO: Lower severity when successful to keep the cache from overworking
+									record_cache_miss(*obj.first);
+								}
+
+								m_num_flush_requests++;
+								result.sections_to_unprotect.push_back(obj.first);
 							}
 
-							m_num_flush_requests++;
+							continue;
 						}
+						else if (deferred_flush)
+						{
+							//allow_flush = false and not synchronized
+							result.sections_to_unprotect.push_back(obj.first);
+							continue;
+						}
+					}
 
-						continue;
-					}
-					else if (deferred_flush)
+					if (!obj.first->is_flushable())
 					{
-						//allow_flush = false and not synchronized
-						result.sections_to_unprotect.push_back(obj.first);
-						continue;
-					}
-					else
-					{
-						//allow_flush = true (rsx is the caller) and not synchronized
 						obj.first->set_dirty(true);
 						m_unreleased_texture_objects++;
 					}
@@ -690,6 +693,15 @@ namespace rsx
 					result.address_range = range;
 					result.cache_tag = m_cache_update_tag.load(std::memory_order_consume);
 					return result;
+				}
+				else
+				{
+					//Flushes happen in one go, now its time to remove protection
+					for (auto& section : result.sections_to_unprotect)
+					{
+						section->unprotect();
+						m_cache[get_block_address(section->get_section_base())].remove_one();
+					}
 				}
 
 				//Everything has been handled
