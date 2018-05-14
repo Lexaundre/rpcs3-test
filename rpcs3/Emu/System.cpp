@@ -38,6 +38,10 @@
 
 #include "Utilities/GDBDebugServer.h"
 
+#ifdef _WIN32
+#include "Utilities/sync.h"		// NtSetTimerResolution 
+#endif
+
 cfg_root g_cfg;
 
 std::string g_cfg_defaults;
@@ -974,6 +978,12 @@ void Emulator::Load(bool add_only)
 
 void Emulator::Run()
 {
+#ifdef _WIN32
+	// Set 0.5 msec timer resolution for best performance
+	ULONG currentRes;
+	NtSetTimerResolution(5000, TRUE, &currentRes);
+#endif
+
 	if (!IsReady())
 	{
 		Load();
@@ -1168,6 +1178,12 @@ void Emulator::Stop(bool restart)
 #ifdef LLVM_AVAILABLE
 	extern void jit_finalize();
 	jit_finalize();
+#endif
+
+#ifdef _WIN32
+	// Restore 1 msec timer resolution 
+	ULONG currentRes;
+	NtSetTimerResolution(10000, TRUE, &currentRes);
 #endif
 
 	if (restart)
