@@ -643,23 +643,29 @@ namespace rsx
 					}
 					else if (obj.first->is_flushable())
 					{
-						if (!allow_flush)
-						{
-							result.sections_to_flush.push_back(obj.first);
+						if (!obj.first->test_cpu_range_start() || !obj.first->test_cpu_range_end()) {
+							LOG_ERROR(RSX, "Someone already trampled the memory region!");
 						}
-						else
-						{
-							if (!obj.first->flush(std::forward<Args>(extras)...))
+						else {
+
+							if (!allow_flush)
 							{
-								//Missed address, note this
-								//TODO: Lower severity when successful to keep the cache from overworking
-								record_cache_miss(*obj.first);
+								result.sections_to_flush.push_back(obj.first);
+							}
+							else
+							{
+								if (!obj.first->flush(std::forward<Args>(extras)...))
+								{
+									//Missed address, note this
+									//TODO: Lower severity when successful to keep the cache from overworking
+									record_cache_miss(*obj.first);
+								}
+
+								m_num_flush_requests++;
 							}
 
-							m_num_flush_requests++;
+							continue;
 						}
-
-						continue;
 					}
 					else if (deferred_flush)
 					{
@@ -683,7 +689,7 @@ namespace rsx
 					obj.second->remove_one();
 				}
 
-				if (deferred_flush)
+				if (deferred_flush && result.sections_to_flush.size())
 				{
 					result.num_flushable = static_cast<int>(result.sections_to_flush.size());
 					result.address_base = address;
@@ -2377,58 +2383,14 @@ namespace rsx
 
 		void tag_framebuffer(u32 texaddr)
 		{
-			if (!g_cfg.video.strict_rendering_mode)
-				return;
-
-			writer_lock lock(m_cache_mutex);
-
-			const auto protect_info = get_memory_protection(texaddr);
-			if (protect_info.first != utils::protection::rw)
-			{
-				if (protect_info.second->overlaps(texaddr, true))
-				{
-					if (protect_info.first == utils::protection::no)
-						return;
-
-					if (protect_info.second->get_context() != texture_upload_context::blit_engine_dst)
-					{
-						//TODO: Invalidate this section
-						LOG_TRACE(RSX, "Framebuffer memory occupied by regular texture!");
-					}
-				}
-
-				protect_info.second->unprotect();
-				vm::write32(texaddr, texaddr);
-				protect_info.second->protect(protect_info.first);
-				return;
-			}
-
-			vm::write32(texaddr, texaddr);
+			auto ptr = rsx::get_super_ptr(texaddr, 4);
+			*(u32*)(ptr.get()) = texaddr;
 		}
 
 		bool test_framebuffer(u32 texaddr)
 		{
-			if (!g_cfg.video.strict_rendering_mode)
-				return true;
-
-			if (g_cfg.video.write_color_buffers || g_cfg.video.write_depth_buffer)
-			{
-				writer_lock lock(m_cache_mutex);
-				auto protect_info = get_memory_protection(texaddr);
-				if (protect_info.first == utils::protection::no)
-				{
-					if (protect_info.second->overlaps(texaddr, true))
-						return true;
-
-					//Address isnt actually covered by the region, it only shares a page with it
-					protect_info.second->unprotect();
-					bool result = (vm::read32(texaddr) == texaddr);
-					protect_info.second->protect(utils::protection::no);
-					return result;
-				}
-			}
-
-			return vm::read32(texaddr) == texaddr;
+			auto ptr = rsx::get_super_ptr(texaddr, 4);
+			return *(u32*)(ptr.get()) == texaddr;
 		}
 	};
 }
