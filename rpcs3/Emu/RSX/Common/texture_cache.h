@@ -618,66 +618,58 @@ namespace rsx
 
 				for (auto &obj : trampled_set)
 				{
-					if (!discard_only)
+					bool collateral = false;
+
+					if (!deferred_flush && !discard_only)
 					{
-						bool collateral = false;
-						if (!deferred_flush)
+						if (!is_writing && obj.first->get_protection() != utils::protection::no)
 						{
-							if (!is_writing && obj.first->get_protection() != utils::protection::no)
-							{
-								collateral = true;
-							}
-							else
-							{
-								if (rebuild_cache && allow_flush && obj.first->is_flushable())
-								{
-									const std::pair<u32, u32> null_check = std::make_pair(UINT32_MAX, 0);
-									collateral = !std::get<0>(obj.first->overlaps_page(null_check, address, true));
-								}
-							}
+							collateral = true;
 						}
-
-						if (collateral)
+						else
 						{
-							//False positive
-							continue;
-						}
-						else if (obj.first->is_flushable() &&
-								 obj.first->test_cpu_range_start() &&
-								 obj.first->test_cpu_range_end())
-						{
-							//Write if and only if no one else has trashed section memory already
-							//TODO: Proper section management should prevent this from happening
-							//TODO: Blit engine section merge support and/or partial texture memory buffering
-							if (!allow_flush)
+							if (rebuild_cache && allow_flush && obj.first->is_flushable())
 							{
-								result.sections_to_flush.push_back(obj.first);
+								const std::pair<u32, u32> null_check = std::make_pair(UINT32_MAX, 0);
+								collateral = !std::get<0>(obj.first->overlaps_page(null_check, address, true));
 							}
-							else
-							{
-								if (!obj.first->flush(std::forward<Args>(extras)...))
-								{
-									//Missed address, note this
-									//TODO: Lower severity when successful to keep the cache from overworking
-									record_cache_miss(*obj.first);
-								}
-
-								m_num_flush_requests++;
-								result.sections_to_unprotect.push_back(obj.first);
-							}
-
-							continue;
-						}
-						else if (deferred_flush)
-						{
-							//allow_flush = false and not synchronized
-							result.sections_to_unprotect.push_back(obj.first);
-							continue;
 						}
 					}
 
-					if (!obj.first->is_flushable())
+					if (collateral)
 					{
+						//False positive
+						continue;
+					}
+					else if (obj.first->is_flushable())
+					{
+						if (!allow_flush)
+						{
+							result.sections_to_flush.push_back(obj.first);
+						}
+						else
+						{
+							if (!obj.first->flush(std::forward<Args>(extras)...))
+							{
+								//Missed address, note this
+								//TODO: Lower severity when successful to keep the cache from overworking
+								record_cache_miss(*obj.first);
+							}
+
+							m_num_flush_requests++;
+						}
+
+						continue;
+					}
+					else if (deferred_flush)
+					{
+						//allow_flush = false and not synchronized
+						result.sections_to_unprotect.push_back(obj.first);
+						continue;
+					}
+					else
+					{
+						//allow_flush = true (rsx is the caller) and not synchronized
 						obj.first->set_dirty(true);
 						m_unreleased_texture_objects++;
 					}
@@ -691,22 +683,13 @@ namespace rsx
 					obj.second->remove_one();
 				}
 
-				if (deferred_flush && result.sections_to_flush.size())
+				if (deferred_flush)
 				{
 					result.num_flushable = static_cast<int>(result.sections_to_flush.size());
 					result.address_base = address;
 					result.address_range = range;
 					result.cache_tag = m_cache_update_tag.load(std::memory_order_consume);
 					return result;
-				}
-				else
-				{
-					//Flushes happen in one go, now its time to remove protection
-					for (auto& section : result.sections_to_unprotect)
-					{
-						section->unprotect();
-						m_cache[get_block_address(section->get_section_base())].remove_one();
-					}
 				}
 
 				//Everything has been handled
@@ -2394,14 +2377,58 @@ namespace rsx
 
 		void tag_framebuffer(u32 texaddr)
 		{
-			auto ptr = rsx::get_super_ptr(texaddr, 4);
-			*(u32*)(ptr.get()) = texaddr;
+			if (!g_cfg.video.strict_rendering_mode)
+				return;
+
+			writer_lock lock(m_cache_mutex);
+
+			const auto protect_info = get_memory_protection(texaddr);
+			if (protect_info.first != utils::protection::rw)
+			{
+				if (protect_info.second->overlaps(texaddr, true))
+				{
+					if (protect_info.first == utils::protection::no)
+						return;
+
+					if (protect_info.second->get_context() != texture_upload_context::blit_engine_dst)
+					{
+						//TODO: Invalidate this section
+						LOG_TRACE(RSX, "Framebuffer memory occupied by regular texture!");
+					}
+				}
+
+				protect_info.second->unprotect();
+				vm::write32(texaddr, texaddr);
+				protect_info.second->protect(protect_info.first);
+				return;
+			}
+
+			vm::write32(texaddr, texaddr);
 		}
 
 		bool test_framebuffer(u32 texaddr)
 		{
-			auto ptr = rsx::get_super_ptr(texaddr, 4);
-			return *(u32*)(ptr.get()) == texaddr;
+			if (!g_cfg.video.strict_rendering_mode)
+				return true;
+
+			if (g_cfg.video.write_color_buffers || g_cfg.video.write_depth_buffer)
+			{
+				writer_lock lock(m_cache_mutex);
+				auto protect_info = get_memory_protection(texaddr);
+				if (protect_info.first == utils::protection::no)
+				{
+					if (protect_info.second->overlaps(texaddr, true))
+						return true;
+
+					//Address isnt actually covered by the region, it only shares a page with it
+					protect_info.second->unprotect();
+					bool result = (vm::read32(texaddr) == texaddr);
+					protect_info.second->protect(utils::protection::no);
+					return result;
+				}
+			}
+
+			return vm::read32(texaddr) == texaddr;
 		}
 	};
 }
