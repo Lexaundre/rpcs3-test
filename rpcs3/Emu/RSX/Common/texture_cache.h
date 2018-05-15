@@ -600,11 +600,12 @@ namespace rsx
 			{
 				update_cache_tag();
 				bool deferred_flush = false;
+				//allow_flush |= !discard_only;
 
 				thrashed_set result = {};
 				result.violation_handled = true;
 
-				if (!discard_only && !allow_flush)
+				/*if (!discard_only && !allow_flush)
 				{
 					for (auto &obj : trampled_set)
 					{
@@ -614,7 +615,7 @@ namespace rsx
 							break;
 						}
 					}
-				}
+				}*/
 
 				for (auto &obj : trampled_set)
 				{
@@ -643,11 +644,9 @@ namespace rsx
 					}
 					else if (obj.first->is_flushable())
 					{
-						if (!obj.first->test_cpu_range_start() || !obj.first->test_cpu_range_end()) {
+						if (!obj.first->test_cpu_range_start() || !obj.first->test_cpu_range_end())
 							LOG_ERROR(RSX, "Someone already trampled the memory region!");
-						}
-						else {
-
+						//else {
 							if (!allow_flush)
 							{
 								result.sections_to_flush.push_back(obj.first);
@@ -664,8 +663,9 @@ namespace rsx
 								m_num_flush_requests++;
 							}
 
-							continue;
-						}
+							if (deferred_flush)
+								continue;
+						//}
 					}
 					else if (deferred_flush)
 					{
