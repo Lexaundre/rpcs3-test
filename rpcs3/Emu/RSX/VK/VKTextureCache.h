@@ -34,7 +34,7 @@ namespace vk
 			if (length > cpu_address_range)
 				release_dma_resources();
 
-			rsx::protection_policy policy = g_cfg.video.strict_rendering_mode ? rsx::protection_policy::protect_policy_full_range : rsx::protection_policy::protect_policy_conservative;
+			rsx::protection_policy policy = rsx::protection_policy::protect_policy_full_range; //g_cfg.video.strict_rendering_mode ? rsx::protection_policy::protect_policy_full_range : rsx::protection_policy::protect_policy_conservative;
 			rsx::buffered_section::reset(base, length, policy);
 		}
 
@@ -213,6 +213,7 @@ namespace vk
 			}
 			else
 			{
+				verify(HERE), max_length % sizeof(T) == 0;
 				const u32 block_size = max_length / sizeof(T);
 				auto typed_dst = (be_t<T> *)pixels_dst;
 				auto typed_src = (T *)pixels_src;
@@ -249,8 +250,9 @@ namespace vk
 				verify(HERE), writable.first == 0;
 				writable.second = cpu_address_range;
 			}
+			verify(HERE), writable.first + writable.second <= cpu_address_range;
 
-			void* pixels_src = (u8*)dma_buffer->map(0, cpu_address_range) + writable.first;
+			void* pixels_src = (u8*)dma_buffer->map(writable.first, writable.second);
 			void* pixels_dst = (u8*)get_raw_ptr() + writable.first;
 
 			const auto texel_layout = vk::get_format_element_size(vram_texture->info.format);

@@ -27,16 +27,33 @@ namespace rsx
 		std::pair<u32, u32> memory_tags;
 		std::pair<u32, u32> confirmed_range;
 
+		inline std::pair<u32, u32> sample_memory_tags() const
+		{
+			if (!locked_memory_ptr)
+				return{ 0,0 };
+			
+			const u8* locked_base_ptr = (u8*)(locked_memory_ptr.get());
+			const u8* first8;
+			const u8* last8;
+
+			if (has_confirmed_range()) {
+				first8 = locked_base_ptr + confirmed_range.first;
+				last8  = locked_base_ptr + confirmed_range.first + confirmed_range.second - 4;
+			}
+			else {
+				first8 = locked_base_ptr;
+				last8  = locked_base_ptr + cpu_address_range - 4;
+			}
+
+			const u32* first = (u32*)(first8);
+			const u32* last = (u32*)(last8);
+
+			return{ (first == nullptr) ? 0 : *first , (last == nullptr) ? 0 : *last };
+		}
+
 		inline void sample_cpu_range()
 		{
-			if (locked_memory_ptr)
-			{
-				const u32* first = (u32*)locked_memory_ptr.get();
-				const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
-
-				memory_tags.first = *first;
-				memory_tags.second = *last;
-			}
+			memory_tags = sample_memory_tags();
 		}
 
 	protected:
@@ -104,6 +121,11 @@ namespace rsx
 			init_lockable_range(cpu_address_base, cpu_address_range);
 		}
 
+		bool has_confirmed_range() const
+		{
+			return (confirmed_range.first != 0 || confirmed_range.second != 0);
+		}
+
 		void protect(utils::protection prot)
 		{
 			if (prot == protection) return;
@@ -125,14 +147,18 @@ namespace rsx
 
 		void protect(utils::protection prot, const std::pair<u32, u32>& range_confirm)
 		{
-			const auto old_prot = protection;
-			const auto old_locked_base = locked_address_base;
-			const auto old_locked_length = locked_address_range;
 			protection = utils::protection::rw;
 
-			const u32 range_limit = std::max(range_confirm.first + range_confirm.second, confirmed_range.first + confirmed_range.second);
-			confirmed_range.first = std::min(confirmed_range.first, range_confirm.first);
-			confirmed_range.second = range_limit - confirmed_range.first;
+			// check if confirmed_range still has the reset value
+			if (has_confirmed_range()) {
+				confirmed_range.first  = std::min(confirmed_range.first , range_confirm.first);
+				confirmed_range.second = std::max(confirmed_range.second, range_confirm.second);
+			}
+			// otherwise, if confirmed_range is still using the reset value, we take range_config as gospel
+			else {
+				confirmed_range.first  = range_confirm.first;
+				confirmed_range.second = range_confirm.second;
+			}
 
 			init_lockable_range(confirmed_range.first + cpu_address_base, confirmed_range.second);
 			protect(prot);
@@ -258,26 +284,17 @@ namespace rsx
 			return locked_memory_ptr.get();
 		}
 
-		bool test_cpu_range_start() const
+		bool test_memory_tags() const
 		{
 			if (!locked_memory_ptr)
 			{
+				LOG_ERROR(RSX, "test_memory_tags(): !locked_memory_ptr");
 				return false;
 			}
 
-			const u32* first = (u32*)locked_memory_ptr.get();
-			return (*first == memory_tags.first || *first == cpu_address_base);
-		}
+			auto sampled = sample_memory_tags();
 
-		bool test_cpu_range_end() const
-		{
-			if (!locked_memory_ptr)
-			{
-				return false;
-			}
-
-			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
-			return (*last == memory_tags.second);
+			return (sampled.first == memory_tags.first && sampled.second == memory_tags.second);
 		}
 
 		std::pair<u32, u32> get_confirmed_range()

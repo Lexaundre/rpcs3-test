@@ -623,10 +623,11 @@ namespace rsx
 							//False positive
 							continue;
 						}
-						else if (obj.first->is_flushable() &&
-								 obj.first->test_cpu_range_start() &&
-								 obj.first->test_cpu_range_end())
+						else if (obj.first->is_flushable())
 						{
+							if (!obj.first->test_memory_tags())
+								LOG_ERROR(RSX, "Memory region was trampled!");
+
 							//Write if and only if no one else has trashed section memory already
 							//TODO: Proper section management should prevent this from happening
 							//TODO: Blit engine section merge support and/or partial texture memory buffering
