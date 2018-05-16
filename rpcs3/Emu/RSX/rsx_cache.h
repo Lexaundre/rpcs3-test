@@ -29,12 +29,14 @@ namespace rsx
 
 		inline void sample_cpu_range()
 		{
-			verify(HERE), locked_memory_ptr;
-			const u32* first = (u32*)locked_memory_ptr.get();
-			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
+			if (locked_memory_ptr)
+			{
+				const u32* first = (u32*)locked_memory_ptr.get();
+				const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
 
-			memory_tags.first = *first;
-			memory_tags.second = *last;
+				memory_tags.first = *first;
+				memory_tags.second = *last;
+			}
 		}
 
 	protected:
@@ -258,17 +260,23 @@ namespace rsx
 
 		bool test_cpu_range_start() const
 		{
-			verify(HERE), locked_memory_ptr;
-			const u32* first = (u32*)locked_memory_ptr.get();
+			if (!locked_memory_ptr)
+			{
+				return false;
+			}
 
+			const u32* first = (u32*)locked_memory_ptr.get();
 			return (*first == memory_tags.first || *first == cpu_address_base);
 		}
 
 		bool test_cpu_range_end() const
 		{
-			verify(HERE), locked_memory_ptr;
-			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
+			if (!locked_memory_ptr)
+			{
+				return false;
+			}
 
+			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
 			return (*last == memory_tags.second);
 		}
 
