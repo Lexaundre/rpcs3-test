@@ -25,6 +25,7 @@ namespace rsx
 		u32 locked_address_range = 0;
 		weak_ptr locked_memory_ptr;
 		std::pair<u32, u32> memory_tags;
+		std::pair<u32, u32> confirmed_range;
 
 		inline void sample_cpu_range()
 		{
@@ -51,21 +52,11 @@ namespace rsx
 			return (base1 < limit2 && base2 < limit1);
 		}
 
-	public:
-
-		buffered_section() {}
-		~buffered_section() {}
-
-		void reset(u32 base, u32 length, protection_policy protect_policy = protect_policy_full_range)
+		inline void init_lockable_range(u32 base, u32 length)
 		{
-			verify(HERE), locked == false;
-
-			cpu_address_base = base;
-			cpu_address_range = length;
-
 			locked_address_base = (base & ~4095);
 
-			if ((protect_policy != protect_policy_full_range) && (length >= 4096))
+			if ((guard_policy != protect_policy_full_range) && (length >= 4096))
 			{
 				const u32 limit = base + length;
 				const u32 block_end = (limit & ~4095);
@@ -78,7 +69,7 @@ namespace rsx
 					//Page boundaries cover at least one unique page
 					locked_address_base = block_start;
 
-					if (protect_policy == protect_policy_conservative)
+					if (guard_policy == protect_policy_conservative)
 					{
 						//Protect full unique range
 						locked_address_range = (block_end - block_start);
@@ -89,9 +80,26 @@ namespace rsx
 				locked_address_range = align(base + length, 4096) - locked_address_base;
 
 			verify(HERE), locked_address_range > 0;
+		}
+
+	public:
+
+		buffered_section() {}
+		~buffered_section() {}
+
+		void reset(u32 base, u32 length, protection_policy protect_policy = protect_policy_full_range)
+		{
+			verify(HERE), locked == false;
+
+			cpu_address_base = base;
+			cpu_address_range = length;
+
+			confirmed_range = { 0, 0 };
 			protection = utils::protection::rw;
 			guard_policy = protect_policy;
 			locked = false;
+
+			init_lockable_range(cpu_address_base, cpu_address_range);
 		}
 
 		void protect(utils::protection prot)
@@ -111,6 +119,21 @@ namespace rsx
 			{
 				locked_memory_ptr = {};
 			}
+		}
+
+		void protect(utils::protection prot, const std::pair<u32, u32>& range_confirm)
+		{
+			const auto old_prot = protection;
+			const auto old_locked_base = locked_address_base;
+			const auto old_locked_length = locked_address_range;
+			protection = utils::protection::rw;
+
+			const u32 range_limit = std::max(range_confirm.first + range_confirm.second, confirmed_range.first + confirmed_range.second);
+			confirmed_range.first = std::min(confirmed_range.first, range_confirm.first);
+			confirmed_range.second = range_limit - confirmed_range.first;
+
+			init_lockable_range(confirmed_range.first + cpu_address_base, confirmed_range.second);
+			protect(prot);
 		}
 
 		void unprotect()
@@ -247,6 +270,11 @@ namespace rsx
 			const u32* last = (u32*)((u8*)locked_memory_ptr.get() + cpu_address_range - 4);
 
 			return (*last == memory_tags.second);
+		}
+
+		std::pair<u32, u32> get_confirmed_range()
+		{
+			return confirmed_range;
 		}
 	};
 

@@ -109,7 +109,7 @@ namespace rsx
 			}
 		}
 
-		auto result = vm::get_super_ptr<u8>(addr, len);
+		auto result = vm::get_super_ptr<u8>(addr, len - 1);
 		return { result };
 	}
 

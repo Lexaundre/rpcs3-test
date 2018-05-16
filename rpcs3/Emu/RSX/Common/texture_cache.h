@@ -154,25 +154,6 @@ namespace rsx
 			readback_behaviour = flags;
 		}
 
-		void reset_protection_policy(protection_policy policy)
-		{
-			if (guard_policy == policy)
-				return;
-
-			const auto prot = get_protection();
-			if (locked)
-			{
-				unprotect();
-			}
-
-			buffered_section::reset(cpu_address_base, cpu_address_range, policy);
-
-			if (prot != utils::protection::rw)
-			{
-				protect(prot);
-			}
-		}
-
 		u16 get_width() const
 		{
 			return width;
@@ -2239,30 +2220,34 @@ namespace rsx
 					dst_is_argb8 ? rsx::texture_create_flags::default_component_order :
 					rsx::texture_create_flags::swapped_native_component_order;
 
-				dest_texture = create_new_texture(cmd, dst.rsx_address, dst.pitch * dst_dimensions.height,
+				//NOTE: Should upload from cpu instead of creating a blank texture
+				cached_dest = create_new_texture(cmd, dst.rsx_address, dst.pitch * dst_dimensions.height,
 					dst_dimensions.width, dst_dimensions.height, 1, 1,
 					gcm_format, rsx::texture_upload_context::blit_engine_dst, rsx::texture_dimension_extended::texture_dimension_2d,
-					channel_order, rsx::texture_colorspace::rgb_linear, rsx::default_remap_vector)->get_raw_texture();
+					channel_order, rsx::texture_colorspace::rgb_linear, rsx::default_remap_vector);
 
+				dest_texture = cached_dest->get_raw_texture();
 				m_texture_memory_in_use += dst.pitch * dst_dimensions.height;
 			}
-			else if (cached_dest)
+
+			const bool notify = !cached_dest->is_locked();
+			const u32 mem_base = dst_area.y1 * dst.pitch;
+			const u32 mem_length = dst.pitch * dst.clip_height;
+
+			lock.upgrade();
+
+			if (notify)
 			{
-				if (!cached_dest->is_locked())
-				{
-					lock.upgrade();
-
-					cached_dest->reprotect(utils::protection::no);
-					m_cache[get_block_address(cached_dest->get_section_base())].notify();
-				}
-				else if (cached_dest->is_synchronized())
-				{
-					//Prematurely read back
-					m_num_cache_mispredictions++;
-				}
-
-				cached_dest->touch();
+				m_cache[get_block_address(cached_dest->get_section_base())].notify();
 			}
+			else if (cached_dest->is_synchronized())
+			{
+				// Premature readback
+				m_num_cache_mispredictions++;
+			}
+
+			cached_dest->reprotect(utils::protection::no, { mem_base, mem_length });
+			cached_dest->touch();
 
 			if (rsx::get_resolution_scale_percent() != 100)
 			{
